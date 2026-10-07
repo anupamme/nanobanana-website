@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useLayoutEffect, useRef, useMemo, useCallback, memo } from 'react';
+import React, { useState, useEffect, useRef, useMemo, useCallback, memo } from 'react';
 import {
   Plus, Search, X, Edit2, Trash2, ChevronDown,
   Image as ImageIcon, FolderPlus, Save, Unlock, Lock,
@@ -1118,10 +1118,7 @@ export default function App() {
   const lastScrollYRef = useRef(0);
   const lastLoadHeightRef = useRef(0);
   const lastLoadScrollYRef = useRef(Number.NEGATIVE_INFINITY);
-  const pendingScrollProgressRef = useRef(null);
-  const isRestoringScrollRef = useRef(false);
   const scrollFrameRef = useRef(null);
-  const scrollRestoreFrameRef = useRef(null);
   const hideBackToTopTimerRef = useRef(null);
   
   // 🟢 子区跳转下拉菜单状态
@@ -1176,28 +1173,6 @@ export default function App() {
     localStorage.setItem('nanobanana_blacklist_no_confirm', suppressBlacklistConfirm ? 'true' : 'false');
   }, [suppressBlacklistConfirm]);
 
-  useLayoutEffect(() => {
-    if (pendingScrollProgressRef.current === null) return;
-
-    const scrollProgress = pendingScrollProgressRef.current;
-    pendingScrollProgressRef.current = null;
-    const scrollableHeight = Math.max(document.documentElement.scrollHeight - window.innerHeight, 0);
-    const restoredScrollY = scrollProgress * scrollableHeight;
-
-    isRestoringScrollRef.current = true;
-    window.scrollTo({ top: restoredScrollY, behavior: 'auto' });
-    lastScrollYRef.current = restoredScrollY;
-    lastLoadScrollYRef.current = restoredScrollY;
-
-    if (scrollRestoreFrameRef.current !== null) {
-      window.cancelAnimationFrame(scrollRestoreFrameRef.current);
-    }
-    scrollRestoreFrameRef.current = window.requestAnimationFrame(() => {
-      isRestoringScrollRef.current = false;
-      scrollRestoreFrameRef.current = null;
-    });
-  }, [visibleCount]);
-
   useEffect(() => {
     localStorage.setItem('nanobanana_last_visit', Date.now().toString());
     const handleScroll = () => {
@@ -1205,20 +1180,18 @@ export default function App() {
 
       scrollFrameRef.current = window.requestAnimationFrame(() => {
         scrollFrameRef.current = null;
-        if (isRestoringScrollRef.current) return;
 
         const currentScrollY = window.scrollY;
         const documentHeight = document.documentElement.scrollHeight;
-        const scrollableHeight = Math.max(documentHeight - window.innerHeight, 0);
         const scrollProgress = documentHeight > 0
           ? (currentScrollY + window.innerHeight) / documentHeight
           : 0;
-        const scrollbarProgress = scrollableHeight > 0 ? currentScrollY / scrollableHeight : 0;
         const hasScrolledFarEnough = currentScrollY - lastLoadScrollYRef.current
           >= window.innerHeight * LOAD_MORE_REARM_VIEWPORT_RATIO;
 
         if (scrollProgress >= LOAD_MORE_SCROLL_THRESHOLD && hasScrolledFarEnough && documentHeight !== lastLoadHeightRef.current) {
-          pendingScrollProgressRef.current = scrollbarProgress;
+          // Append without repositioning the viewport as the document grows.
+          lastLoadScrollYRef.current = currentScrollY;
           lastLoadHeightRef.current = documentHeight;
           setVisibleCount(prev => prev + ITEMS_PER_PAGE);
         }
@@ -1249,7 +1222,6 @@ export default function App() {
     return () => {
       window.removeEventListener('scroll', handleScroll);
       if (scrollFrameRef.current !== null) window.cancelAnimationFrame(scrollFrameRef.current);
-      if (scrollRestoreFrameRef.current !== null) window.cancelAnimationFrame(scrollRestoreFrameRef.current);
       if (hideBackToTopTimerRef.current !== null) window.clearTimeout(hideBackToTopTimerRef.current);
     };
   }, []);
